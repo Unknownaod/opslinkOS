@@ -9,6 +9,10 @@ const router = express.Router();
    HELPERS
 ========================= */
 function signToken(user) {
+  if (!process.env.JWT_SECRET) {
+    throw new Error("JWT_SECRET is not defined");
+  }
+
   return jwt.sign(
     {
       uid: user._id,
@@ -29,7 +33,10 @@ function isValidEmail(email) {
 ========================= */
 router.post("/register", async (req, res) => {
   try {
+    console.log("REGISTER BODY:", req.body);
+
     const { username, email, password } = req.body;
+    const normalizedEmail = email?.toLowerCase();
 
     // ---- Validation ----
     if (!username || !email || !password) {
@@ -40,7 +47,7 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "Invalid username length" });
     }
 
-    if (!isValidEmail(email)) {
+    if (!isValidEmail(normalizedEmail)) {
       return res.status(400).json({ error: "Invalid email address" });
     }
 
@@ -48,39 +55,47 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "Password must be at least 8 characters" });
     }
 
-    // ---- Uniqueness ----
+    // ---- Uniqueness check ----
     const existingUser = await User.findOne({
-      $or: [{ username }, { email }]
+      $or: [{ username }, { email: normalizedEmail }]
     });
 
     if (existingUser) {
-      return res.status(409).json({
-        error: existingUser.username === username
-          ? "Username already exists"
-          : "Email already exists"
-      });
+      if (existingUser.username === username) {
+        return res.status(409).json({ error: "Username already exists" });
+      }
+      if (existingUser.email === normalizedEmail) {
+        return res.status(409).json({ error: "Email already exists" });
+      }
     }
 
-    // ---- Create User ----
+    // ---- Create user ----
     const passwordHash = await bcrypt.hash(password, 12);
 
     const user = await User.create({
       username,
-      email,
+      email: normalizedEmail,
       passwordHash
     });
 
     const token = signToken(user);
 
-    res.status(201).json({
+    return res.status(201).json({
       token,
       username: user.username,
       email: user.email
     });
 
   } catch (err) {
+    // Mongo duplicate index fallback
+    if (err.code === 11000) {
+      return res.status(409).json({
+        error: "Username or email already exists"
+      });
+    }
+
     console.error("REGISTER ERROR:", err);
-    res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 });
 
@@ -90,7 +105,6 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { identifier, password } = req.body;
-    // identifier = username OR email
 
     if (!identifier || !password) {
       return res.status(400).json({ error: "Missing credentials" });
@@ -114,7 +128,7 @@ router.post("/login", async (req, res) => {
 
     const token = signToken(user);
 
-    res.json({
+    return res.json({
       token,
       username: user.username,
       email: user.email
@@ -122,7 +136,7 @@ router.post("/login", async (req, res) => {
 
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 });
 
