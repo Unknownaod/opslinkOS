@@ -7,17 +7,49 @@ import authRoutes from "./routes/auth.js";
 dotenv.config();
 
 const app = express();
-app.use(cors());
+
+/* =========================
+   MIDDLEWARE
+========================= */
+app.use(cors({
+  origin: "*", // tighten later if needed
+  methods: ["GET", "POST"],
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+/* =========================
+   DATABASE
+========================= */
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅ Mongo connected"))
-  .catch(err => console.error(err));
+  .then(async () => {
+    console.log("✅ Mongo connected");
 
+    // 🔥 IMPORTANT: prevents duplicate-index 500 errors
+    await mongoose.syncIndexes();
+    console.log("✅ Mongo indexes synced");
+  })
+  .catch(err => {
+    console.error("❌ Mongo connection error:", err);
+    process.exit(1);
+  });
+
+/* =========================
+   ROUTES
+========================= */
 app.use("/auth", authRoutes);
 
-app.get("/", (_, res) => res.json({ status: "OpsLink Auth API online" }));
+app.get("/", (_, res) => {
+  res.json({ status: "OpsLink Auth API online" });
+});
 
-app.listen(process.env.PORT || 3000, () =>
-  console.log("🚀 Auth API running")
-);
+/* =========================
+   SERVER
+========================= */
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+  console.log(`🚀 Auth API running on port ${PORT}`);
+});
